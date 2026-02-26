@@ -14,11 +14,28 @@ st.set_page_config(page_title="山本塾 タイム記録", page_icon="⏱️", l
 # 目標タイムの設定（適宜追加・変更してください）
 TARGET_TIMES = {
     "たし算": {
-        "4-1": {"maru": 80, "niju_maru": 50},
-        "4-2": {"maru": 90, "niju_maru": 60},
+        "レベル1": {"maru": 80, "niju_maru": 50},
+        "レベル2": {"maru": 90, "niju_maru": 60},
+        "レベル3": {"maru": 90, "niju_maru": 60},
+        "レベル4": {"maru": 90, "niju_maru": 60},
     },
     "ひき算": {
-        "4-1": {"maru": 85, "niju_maru": 55},
+        "レベル1": {"maru": 85, "niju_maru": 55},
+        "レベル2": {"maru": 90, "niju_maru": 60},
+        "レベル3": {"maru": 90, "niju_maru": 60},
+        "レベル4": {"maru": 90, "niju_maru": 60},
+    },
+    "かけ算": {
+        "レベル1": {"maru": 85, "niju_maru": 55},
+        "レベル2": {"maru": 90, "niju_maru": 60},
+        "レベル3": {"maru": 90, "niju_maru": 60},
+        "レベル4": {"maru": 90, "niju_maru": 60},
+    },
+    "わり算": {
+        "レベル1": {"maru": 85, "niju_maru": 55},
+        "レベル2": {"maru": 90, "niju_maru": 60},
+        "レベル3": {"maru": 90, "niju_maru": 60},
+        "レベル4": {"maru": 90, "niju_maru": 60},
     }
 }
 
