@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
+import streamlit.components.v1 as components
 
 # ==========================================
 # 設定値・定数
@@ -100,10 +101,9 @@ def display_sidebar():
     return unit, level
 
 def display_timer():
-    """ストップウォッチ機能"""
+    """ストップウォッチ機能（カウントダウン・スペースキー対応）"""
     st.subheader("⏱️ ストップウォッチ")
     
-    # セッションステートの初期化
     if 'start_time' not in st.session_state:
         st.session_state.start_time = None
     if 'elapsed_time' not in st.session_state:
@@ -111,11 +111,21 @@ def display_timer():
     if 'is_running' not in st.session_state:
         st.session_state.is_running = False
 
-    # スマホでも押しやすいようにカラム幅を均等に
     col1, col2, col3 = st.columns(3)
+    
+    # カウントダウン表示用の空のコンテナを用意
+    countdown_placeholder = st.empty()
 
     with col1:
         if st.button("▶️ 開始", use_container_width=True):
+            # 3秒カウントダウン
+            for i in range(3, 0, -1):
+                countdown_placeholder.markdown(f"<h2 style='text-align: center;'>{i}</h2>", unsafe_allow_html=True)
+                time.sleep(1)
+            countdown_placeholder.markdown("<h2 style='text-align: center;'>0 (スタート！)</h2>", unsafe_allow_html=True)
+            time.sleep(0.5)
+            countdown_placeholder.empty() # 表示を消す
+            
             st.session_state.start_time = time.time()
             st.session_state.is_running = True
             st.session_state.elapsed_time = 0.0
@@ -134,9 +144,28 @@ def display_timer():
             st.session_state.is_running = False
             st.rerun()
 
-    # 状態の表示
+    # 状態の表示と、スペースキー検知のJavaScript
     if st.session_state.is_running:
-        st.warning("計測中... (終わったら停止を押してください)")
+        st.warning("計測中... (画面上の「停止」を押すか、スペースキーを押してください)")
+        
+        # スペースキーが押されたら「⏹️ 停止」ボタンをクリックする裏技JS
+        components.html(
+            """
+            <script>
+            const doc = window.parent.document;
+            doc.addEventListener('keydown', function(e) {
+                if (e.code === 'Space') {
+                    e.preventDefault();
+                    // 「停止」という文字を含むボタンを探してクリック
+                    const buttons = Array.from(doc.querySelectorAll('button'));
+                    const stopBtn = buttons.find(el => el.innerText.includes('停止'));
+                    if (stopBtn) { stopBtn.click(); }
+                }
+            });
+            </script>
+            """,
+            height=0,
+        )
     elif st.session_state.elapsed_time > 0:
         st.success(f"計測完了: {st.session_state.elapsed_time:.1f} 秒")
         
@@ -156,7 +185,7 @@ def display_charts(df, unit, level):
     # 日付でソートし、直近10回分を取得
     filtered_df = filtered_df.sort_values("日付").tail(10)
     
-    # グラフの作成
+# グラフの作成
     fig = px.line(
         filtered_df, 
         x="日付", 
@@ -165,12 +194,21 @@ def display_charts(df, unit, level):
         title="直近10回のタイム推移（秒）"
     )
     
+    # Y軸の最大値を計算するための変数（デフォルトは0）
+    max_y = filtered_df["タイム"].max() if not filtered_df.empty else 0
+    
     # 目標値の破線を追加
     targets = TARGET_TIMES.get(unit, {}).get(level)
     if targets:
+        maru_time = targets["maru"]
+        niju_maru_time = targets["niju_maru"]
+        
+        # 〇タイムと実際の記録の最大値、大きい方を max_y にする
+        max_y = max(max_y, maru_time)
+        
         # 〇タイム
         fig.add_hline(
-            y=targets["maru"], 
+            y=maru_time, 
             line_dash="dash", 
             line_color="green", 
             annotation_text="〇", 
@@ -178,17 +216,20 @@ def display_charts(df, unit, level):
         )
         # ◎タイム
         fig.add_hline(
-            y=targets["niju_maru"], 
+            y=niju_maru_time, 
             line_dash="dash", 
             line_color="blue", 
             annotation_text="◎", 
             annotation_position="bottom right"
         )
         
-    # Y軸を0始まりにし、少し余裕を持たせる
-    fig.update_layout(yaxis_rangemode='tozero')
+    # Y軸は0からスタートし、最大値+10%のゆとりを持たせる
+    # X軸は同じ日付が続いても順番に並べるため 'category' に設定
+    fig.update_layout(
+        yaxis_range=[0, max_y * 1.1],
+        xaxis=dict(type='category')
+    )
     
-    # スマホ対応でコンテナ幅いっぱいにする
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -225,7 +266,7 @@ def main():
     if st.button("💾 記録を保存", type="primary", use_container_width=True):
         if input_time > 0:
             entry = {
-                "日付": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "日付": datetime.now().strftime("%Y-%m-%d"),
                 "単元": unit,
                 "レベル": level,
                 "タイム": input_time
