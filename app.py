@@ -74,11 +74,19 @@ def display_sidebar():
     # 単元の選択
     unit = st.sidebar.selectbox("単元を選択", ["たし算", "ひき算", "かけ算", "わり算"])
     
-    # 選択した単元に応じたレベルのリストを生成（例: 1-1から10-10など簡易的に生成）
-    # ここでは例として簡易なリストを用意します
-    levels = [f"{i}-{j}" for i in range(1, 11) for j in range(1, 3)]
-    level = st.sidebar.selectbox("レベルを選択", levels, index=levels.index("4-1") if "4-1" in levels else 0)
+　　# 単元ごとの最大レベルを定義
+    max_levels = {
+        "たし算": 11,
+        "ひき算": 12,
+        "かけ算": 8,
+        "わり算": 10
+    }
     
+    # 選択された単元の最大レベルを取得
+    max_level = max_levels.get(unit, 10)
+    
+    # 選択した単元に応じたレベルのリストを生成（レベル1, レベル2...）
+    levels = [f"レベル{i}" for i in range(1, max_level + 1)]
     # 目標タイムの表示
     targets = TARGET_TIMES.get(unit, {}).get(level)
     if targets:
