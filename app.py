@@ -87,6 +87,11 @@ def display_sidebar():
     
     # 選択した単元に応じたレベルのリストを生成（レベル1, レベル2...）
     levels = [f"レベル{i}" for i in range(1, max_level + 1)]
+
+    # レベルの選択（デフォルトを "レベル4" に設定）
+    default_index = levels.index("レベル1") if "レベル1" in levels else 0
+    level = st.sidebar.selectbox("レベルを選択", levels, index=default_index)
+
     # 目標タイムの表示
     targets = TARGET_TIMES.get(unit, {}).get(level)
     if targets:
