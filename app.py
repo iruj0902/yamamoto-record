@@ -3,107 +3,53 @@ import pandas as pd
 import time
 from datetime import datetime
 import plotly.express as px
-from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
+from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
-# 設定値・定数
+# 1. ページ設定とデータ定義
 # ==========================================
-# ページ設定（モバイル対応のためwideモード）
-st.set_page_config(page_title="山本塾 タイム記録", page_icon="⏱️", layout="centered")
+st.set_page_config(page_title="山本塾 計算ドリル", page_icon="✏️", layout="wide")
 
-# 目標タイムの設定（適宜追加・変更してください）
-TARGET_TIMES = {
-    "たし算": {
-        "レベル1": {"maru": 80, "niju_maru": 50},
-        "レベル2": {"maru": 90, "niju_maru": 60},
-        "レベル3": {"maru": 90, "niju_maru": 60},
-        "レベル4": {"maru": 90, "niju_maru": 60},
-    },
-    "ひき算": {
-        "レベル1": {"maru": 85, "niju_maru": 55},
-        "レベル2": {"maru": 90, "niju_maru": 60},
-        "レベル3": {"maru": 90, "niju_maru": 60},
-        "レベル4": {"maru": 90, "niju_maru": 60},
-    },
-    "かけ算": {
-        "レベル1": {"maru": 85, "niju_maru": 55},
-        "レベル2": {"maru": 90, "niju_maru": 60},
-        "レベル3": {"maru": 90, "niju_maru": 60},
-        "レベル4": {"maru": 90, "niju_maru": 60},
-    },
-    "わり算": {
-        "レベル1": {"maru": 85, "niju_maru": 55},
-        "レベル2": {"maru": 90, "niju_maru": 60},
-        "レベル3": {"maru": 90, "niju_maru": 60},
-        "レベル4": {"maru": 90, "niju_maru": 60},
-    }
+# 単元とレベルの基本構成・目標タイム・PDFリンクの辞書を自動生成＆定義
+# ※ URLはダミーです。実際のものに置き換えてください。
+DRILL_DATA = {}
+unit_configs = {
+    "たし算": 11,
+    "ひき算": 12,
+    "かけ算": 8,
+    "わり算": 10
 }
 
-# ==========================================
-# 関数定義
-# ==========================================
-
-def init_connection():
-    """スプレッドシートへの接続を初期化"""
-    return st.connection("gsheets", type=GSheetsConnection)
-
-@st.cache_data(ttl=60)
-def load_data(_conn):
-    """データの読み込みとキャッシュ（_connでハッシュ化エラーを回避）"""
-    try:
-        df = _conn.read(worksheet="Sheet1")
-        # データが空の場合の初期化
-        if df.empty or "日付" not in df.columns:
-            return pd.DataFrame(columns=["日付", "単元", "レベル", "タイム"])
-        return df
-    except Exception as e:
-        st.error(f"データの読み込みに失敗しました: {e}")
-        return pd.DataFrame(columns=["日付", "単元", "レベル", "タイム"])
-
-def save_data(conn, df, entry):
-    """新しい記録の追記処理"""
-    # 既存のDataFrameに新しい辞書(entry)を結合
-    new_df = pd.concat([df, pd.DataFrame([entry])], ignore_index=True)
-    conn.update(worksheet="Sheet1", data=new_df)
-    st.cache_data.clear() # キャッシュをクリアして次回最新データを読み込む
-
-def display_sidebar():
-    """単元とレベルの選択UI (サイドバー)"""
-    st.sidebar.title("📚 ドリルの設定")
-    
-    # 単元の選択
-    unit = st.sidebar.selectbox("単元を選択", ["たし算", "ひき算", "かけ算", "わり算"])
-    
-    # 単元ごとの最大レベルを定義
-    max_levels = {
-        "たし算": 11,
-        "ひき算": 12,
-        "かけ算": 8,
-        "わり算": 10
-    }
-    
-    # 選択された単元の最大レベルを取得
-    max_level = max_levels.get(unit, 10)
-    
-    # 選択した単元に応じたレベルのリストを生成（レベル1, レベル2...）
-    levels = [f"レベル{i}" for i in range(1, max_level + 1)]
-
-    # レベルの選択（デフォルトを "レベル4" に設定）
-    default_index = levels.index("レベル1") if "レベル1" in levels else 0
-    level = st.sidebar.selectbox("レベルを選択", levels, index=default_index)
-
-    # 目標タイムの表示
-    targets = TARGET_TIMES.get(unit, {}).get(level)
-    if targets:
-        st.sidebar.info(f"🎯 目標タイム\n\n〇 : {targets['maru']} 秒\n\n◎ : {targets['niju_maru']} 秒")
+for unit, max_lvl in unit_configs.items():
+    DRILL_DATA[unit] = {}
+    for i in range(1, max_lvl + 1):
+        level_name = f"レベル{i}"
+        # 例として、レベルが上がるごとに目標タイムが厳しくなるようなダミー値を設定
+        maru_time = 100 - (i * 2)
+        niju_maru_time = 80 - (i * 2)
         
-    return unit, level
+        DRILL_DATA[unit][level_name] = {
+            "maru": maru_time,
+            "niju_maru": niju_maru_time,
+            "pdf_q": f"https://example.com/{unit}_{level_name}_question.pdf", # 問題PDF
+            "pdf_a": f"https://example.com/{unit}_{level_name}_answer.pdf"    # 解答PDF
+        }
 
-def display_timer():
-    """ストップウォッチ機能（カウントダウン・スペースキー対応）"""
-    st.subheader("⏱️ ストップウォッチ")
+# ==========================================
+# 2. セッションステートの初期化
+# ==========================================
+def init_session_state():
+    if "current_screen" not in st.session_state:
+        st.session_state.current_screen = "main" # "main" or "drill"
+    if "selected_unit" not in st.session_state:
+        st.session_state.selected_unit = None
+    if "selected_level" not in st.session_state:
+        st.session_state.selected_level = None
+    if "favorites" not in st.session_state:
+        st.session_state.favorites = [] # [(unit, level), ...] 最大3つ
     
+    # タイマー用の状態
     if 'start_time' not in st.session_state:
         st.session_state.start_time = None
     if 'elapsed_time' not in st.session_state:
@@ -111,44 +57,222 @@ def display_timer():
     if 'is_running' not in st.session_state:
         st.session_state.is_running = False
 
-    col1, col2, col3 = st.columns(3)
+init_session_state()
+
+# ==========================================
+# 3. 画面遷移・お気に入り操作のコールバック関数
+# ==========================================
+def go_to_drill(unit, level):
+    st.session_state.selected_unit = unit
+    st.session_state.selected_level = level
+    st.session_state.current_screen = "drill"
+    st.session_state.elapsed_time = 0.0
+    st.session_state.start_time = None
+    st.session_state.is_running = False
+
+def go_to_main():
+    st.session_state.current_screen = "main"
+    st.session_state.selected_unit = None
+    st.session_state.selected_level = None
+
+def toggle_favorite(unit, level):
+    fav = (unit, level)
+    if fav in st.session_state.favorites:
+        st.session_state.favorites.remove(fav)
+    else:
+        if len(st.session_state.favorites) >= 3:
+            st.warning("お気に入りは最大3つまでです！")
+        else:
+            st.session_state.favorites.append(fav)
+
+# ==========================================
+# 4. データ操作関数 (Google Sheets)
+# ==========================================
+def init_connection():
+    return st.connection("gsheets", type=GSheetsConnection)
+
+@st.cache_data(ttl=60)
+def load_data(_conn):
+    try:
+        df = _conn.read(worksheet="Sheet1")
+        if df.empty or "日付" not in df.columns:
+            return pd.DataFrame(columns=["日付", "単元", "レベル", "タイム"])
+        return df
+    except Exception as e:
+        st.error("データの読み込みに失敗しました。")
+        return pd.DataFrame(columns=["日付", "単元", "レベル", "タイム"])
+
+def save_data(conn, df, entry):
+    new_df = pd.concat([df, pd.DataFrame([entry])], ignore_index=True)
+    conn.update(worksheet="Sheet1", data=new_df)
+    st.cache_data.clear()
+
+# ミニグラフ作成用関数
+def create_mini_chart(df, unit, level):
+    filtered_df = df[(df["単元"] == unit) & (df["レベル"] == level)].sort_values("日付").tail(10)
+    if filtered_df.empty:
+        return None
     
-    # カウントダウン表示用の空のコンテナを用意
+    fig = px.line(filtered_df, x="日付", y="タイム", markers=True)
+    targets = DRILL_DATA[unit][level]
+    
+    fig.add_hline(y=targets["maru"], line_dash="dash", line_color="green")
+    fig.add_hline(y=targets["niju_maru"], line_dash="dash", line_color="blue")
+    
+    # ミニグラフ用に余計な情報を隠す
+    fig.update_layout(
+        xaxis_title=None, yaxis_title=None,
+        xaxis=dict(showticklabels=False, type='category'),
+        margin=dict(l=0, r=0, t=10, b=0),
+        height=150
+    )
+    return fig
+
+# ==========================================
+# 5. UIコンポーネント：メイン画面
+# ==========================================
+def display_main_screen(df):
+    st.title("📚 山本塾 計算ドリル")
+    
+    # 最新データ読み込みボタン
+    if st.button("🔄 データを最新に更新", use_container_width=False):
+        st.cache_data.clear()
+        st.rerun()
+
+    st.markdown("---")
+
+    # ----- お気に入り（挑戦中）セクション -----
+    st.subheader("🌟 現在挑戦中のレベル")
+    if not st.session_state.favorites:
+        st.info("下のリストから、挑戦したいレベルの「⭐」を押して追加しよう！")
+    else:
+        # 最大3つのカラムを作成
+        cols = st.columns(3)
+        for i, (f_unit, f_level) in enumerate(st.session_state.favorites):
+            with cols[i]:
+                st.markdown(f"### {f_unit} : {f_level}")
+                
+                # ミニグラフの表示
+                fig = create_mini_chart(df, f_unit, f_level)
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True, key=f"chart_{f_unit}_{f_level}")
+                else:
+                    st.write("まだ記録がありません")
+                
+                # 挑戦ボタン
+                st.button(
+                    "🔥 挑戦する！", 
+                    key=f"fav_btn_{f_unit}_{f_level}", 
+                    type="primary", 
+                    use_container_width=True,
+                    on_click=go_to_drill,
+                    args=(f_unit, f_level)
+                )
+                
+                # お気に入り解除ボタン
+                st.button(
+                    "❌ はずす", 
+                    key=f"rem_btn_{f_unit}_{f_level}", 
+                    use_container_width=True,
+                    on_click=toggle_favorite,
+                    args=(f_unit, f_level)
+                )
+
+    st.markdown("---")
+
+    # ----- 全レベル一覧（タブ形式） -----
+    st.subheader("📖 ドリル一覧")
+    tabs = st.tabs(list(unit_configs.keys()))
+    
+    for tab, unit in zip(tabs, unit_configs.keys()):
+        with tab:
+            for level, data in DRILL_DATA[unit].items():
+                # iPadで見やすいようにカラム幅を調整
+                col1, col2, col3, col4 = st.columns([3, 3, 2, 3])
+                
+                with col1:
+                    st.markdown(f"**{level}**")
+                with col2:
+                    st.markdown(f"〇: {data['maru']}秒 / ◎: {data['niju_maru']}秒")
+                with col3:
+                    is_fav = (unit, level) in st.session_state.favorites
+                    fav_icon = "⭐ 追加済み" if is_fav else "☆ 追加する"
+                    st.button(
+                        fav_icon, 
+                        key=f"list_fav_{unit}_{level}", 
+                        on_click=toggle_favorite, 
+                        args=(unit, level),
+                        use_container_width=True
+                    )
+                with col4:
+                    st.button(
+                        "▶️ 挑戦！", 
+                        key=f"list_chal_{unit}_{level}", 
+                        type="primary",
+                        on_click=go_to_drill, 
+                        args=(unit, level),
+                        use_container_width=True
+                    )
+                st.divider()
+
+# ==========================================
+# 6. UIコンポーネント：ドリル実行画面
+# ==========================================
+def display_drill_screen(conn, df):
+    unit = st.session_state.selected_unit
+    level = st.session_state.selected_level
+    data = DRILL_DATA[unit][level]
+    
+    # 戻るボタン
+    st.button("⬅️ 一覧に戻る", on_click=go_to_main)
+    
+    st.title(f"🔥 {unit} {level} に挑戦！")
+    
+    col_tgt1, col_tgt2 = st.columns(2)
+    col_tgt1.info(f"🎯 目標タイム 〇: {data['maru']} 秒")
+    col_tgt2.info(f"🎯 目標タイム ◎: {data['niju_maru']} 秒")
+
+    # 問題PDFを開く
+    st.link_button("📄 問題プリントを開く (印刷・表示)", data["pdf_q"], use_container_width=True)
+    
+    st.markdown("---")
+
+    # ----- タイマー機能 -----
+    st.subheader("⏱️ ストップウォッチ")
     countdown_placeholder = st.empty()
 
-    with col1:
-        if st.button("▶️ 開始", use_container_width=True):
+    t_col1, t_col2, t_col3 = st.columns(3)
+    with t_col1:
+        if st.button("▶️ 開始", use_container_width=True, height=60): # heightはCSSハックが必要ですが、文字を大きくして対応可能
             # 3秒カウントダウン
             for i in range(3, 0, -1):
-                countdown_placeholder.markdown(f"<h2 style='text-align: center;'>{i}</h2>", unsafe_allow_html=True)
+                countdown_placeholder.markdown(f"<h1 style='text-align: center; font-size: 80px;'>{i}</h1>", unsafe_allow_html=True)
                 time.sleep(1)
-            countdown_placeholder.markdown("<h2 style='text-align: center;'>0 (スタート！)</h2>", unsafe_allow_html=True)
+            countdown_placeholder.markdown("<h1 style='text-align: center; font-size: 80px; color: red;'>スタート！</h1>", unsafe_allow_html=True)
             time.sleep(0.5)
-            countdown_placeholder.empty() # 表示を消す
+            countdown_placeholder.empty()
             
             st.session_state.start_time = time.time()
             st.session_state.is_running = True
             st.session_state.elapsed_time = 0.0
             st.rerun()
 
-    with col2:
+    with t_col2:
         if st.button("⏹️ 停止", use_container_width=True) and st.session_state.is_running:
             st.session_state.elapsed_time = time.time() - st.session_state.start_time
             st.session_state.is_running = False
             st.rerun()
 
-    with col3:
+    with t_col3:
         if st.button("🔄 リセット", use_container_width=True):
             st.session_state.start_time = None
             st.session_state.elapsed_time = 0.0
             st.session_state.is_running = False
             st.rerun()
 
-    # 状態の表示と、スペースキー検知のJavaScript
+    # 計測中の表示とスペースキー検知
     if st.session_state.is_running:
         st.warning("計測中... (画面上の「停止」を押すか、スペースキーを押してください)")
-        
-        # スペースキーが押されたら「⏹️ 停止」ボタンをクリックする裏技JS
         components.html(
             """
             <script>
@@ -156,131 +280,54 @@ def display_timer():
             doc.addEventListener('keydown', function(e) {
                 if (e.code === 'Space') {
                     e.preventDefault();
-                    // 「停止」という文字を含むボタンを探してクリック
                     const buttons = Array.from(doc.querySelectorAll('button'));
                     const stopBtn = buttons.find(el => el.innerText.includes('停止'));
                     if (stopBtn) { stopBtn.click(); }
                 }
             });
             </script>
-            """,
-            height=0,
+            """, height=0
         )
-    elif st.session_state.elapsed_time > 0:
-        st.success(f"計測完了: {st.session_state.elapsed_time:.1f} 秒")
+    
+    # ----- 計測完了後の処理（解答確認＆保存） -----
+    if st.session_state.elapsed_time > 0 and not st.session_state.is_running:
+        st.success(f"🎉 計測完了: {st.session_state.elapsed_time:.1f} 秒")
         
-    return st.session_state.elapsed_time
-
-def display_charts(df, unit, level):
-    """Plotlyを使用した時系列グラフの表示"""
-    st.subheader(f"📊 {unit} レベル {level} の推移")
-    
-    # 選択された単元・レベルでフィルタリング
-    filtered_df = df[(df["単元"] == unit) & (df["レベル"] == level)]
-    
-    if filtered_df.empty:
-        st.info("このドリルはまだ記録がありません。最初の記録を付けましょう！")
-        return
+        st.markdown("---")
+        st.subheader("📝 丸つけと記録")
         
-    # 日付でソートし、直近10回分を取得
-    filtered_df = filtered_df.sort_values("日付").tail(10)
-    
-# グラフの作成
-    fig = px.line(
-        filtered_df, 
-        x="日付", 
-        y="タイム", 
-        markers=True, 
-        title="直近10回のタイム推移（秒）"
-    )
-    
-    # Y軸の最大値を計算するための変数（デフォルトは0）
-    max_y = filtered_df["タイム"].max() if not filtered_df.empty else 0
-    
-    # 目標値の破線を追加
-    targets = TARGET_TIMES.get(unit, {}).get(level)
-    if targets:
-        maru_time = targets["maru"]
-        niju_maru_time = targets["niju_maru"]
+        # 解答PDFを表示
+        st.link_button("✅ 解答プリントを開く (丸つけ)", data["pdf_a"], use_container_width=True)
         
-        # 〇タイムと実際の記録の最大値、大きい方を max_y にする
-        max_y = max(max_y, maru_time)
+        # 記録の保存フォーム
+        st.write("▼ タイムを確認して保存しよう！")
+        input_time = st.number_input("タイム（秒）", min_value=0.0, step=0.1, value=float(round(st.session_state.elapsed_time, 1)), format="%.1f")
         
-        # 〇タイム
-        fig.add_hline(
-            y=maru_time, 
-            line_dash="dash", 
-            line_color="green", 
-            annotation_text="〇", 
-            annotation_position="bottom right"
-        )
-        # ◎タイム
-        fig.add_hline(
-            y=niju_maru_time, 
-            line_dash="dash", 
-            line_color="blue", 
-            annotation_text="◎", 
-            annotation_position="bottom right"
-        )
-        
-    # Y軸は0からスタートし、最大値+10%のゆとりを持たせる
-    # X軸は同じ日付が続いても順番に並べるため 'category' に設定
-    fig.update_layout(
-        yaxis_range=[0, max_y * 1.1],
-        xaxis=dict(type='category')
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
+        if st.button("💾 記録を保存して戻る", type="primary", use_container_width=True):
+            if input_time > 0:
+                entry = {
+                    "日付": datetime.now().strftime("%Y-%m-%d"),
+                    "単元": unit,
+                    "レベル": level,
+                    "タイム": input_time
+                }
+                save_data(conn, df, entry)
+                st.success("保存しました！")
+                time.sleep(1) # 少しだけ成功メッセージを見せる
+                go_to_main()  # メイン画面へ戻る
+                st.rerun()
 
 # ==========================================
-# メイン処理
+# 7. メイン処理 (画面のルーティング)
 # ==========================================
 def main():
-    st.title("山本塾 タイム記録")
-    
-    # 1. 接続とデータの読み込み
     conn = init_connection()
     df = load_data(conn)
     
-    # 2. サイドバーの設定
-    unit, level = display_sidebar()
-    
-    # 3. タイマーの表示と計測時間の取得
-    elapsed_time = display_timer()
-    
-    st.divider()
-    
-    # 4. 記録の入力と保存
-    st.subheader("📝 記録の保存")
-    
-    # タイマー計測値が自動で入力フォームのデフォルト値になります
-    input_time = st.number_input(
-        "タイム（秒）を入力", 
-        min_value=0.0, 
-        step=0.1, 
-        value=float(round(elapsed_time, 1)),
-        format="%.1f"
-    )
-    
-    if st.button("💾 記録を保存", type="primary", use_container_width=True):
-        if input_time > 0:
-            entry = {
-                "日付": datetime.now().strftime("%Y-%m-%d"),
-                "単元": unit,
-                "レベル": level,
-                "タイム": input_time
-            }
-            save_data(conn, df, entry)
-            st.success("記録を保存しました！グラフに反映します。")
-            st.rerun() # リロードしてグラフを更新
-        else:
-            st.error("有効なタイムを入力してください。")
-            
-    st.divider()
-    
-    # 5. グラフの表示
-    display_charts(df, unit, level)
+    if st.session_state.current_screen == "main":
+        display_main_screen(df)
+    elif st.session_state.current_screen == "drill":
+        display_drill_screen(conn, df)
 
 if __name__ == "__main__":
     main()
