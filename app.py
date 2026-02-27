@@ -3,6 +3,7 @@ import pandas as pd
 import time
 from datetime import datetime
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
 
@@ -27,11 +28,25 @@ for unit, max_lvl in unit_configs.items():
         maru_time = 100 - (i * 2)
         niju_maru_time = 80 - (i * 2)
         
+        # 問題①〜④用のPDFリンク（ダミー）を生成
+        pdf_q_dict = {
+            "①": f"https://example.com/{unit}_{level_name}_q1.pdf",
+            "②": f"https://example.com/{unit}_{level_name}_q2.pdf",
+            "③": f"https://example.com/{unit}_{level_name}_q3.pdf",
+            "④": f"https://example.com/{unit}_{level_name}_q4.pdf",
+        }
+        pdf_a_dict = {
+            "①": f"https://example.com/{unit}_{level_name}_a1.pdf",
+            "②": f"https://example.com/{unit}_{level_name}_a2.pdf",
+            "③": f"https://example.com/{unit}_{level_name}_a3.pdf",
+            "④": f"https://example.com/{unit}_{level_name}_a4.pdf",
+        }
+        
         DRILL_DATA[unit][level_name] = {
             "maru": maru_time,
             "niju_maru": niju_maru_time,
-            "pdf_q": f"https://example.com/{unit}_{level_name}_question.pdf", # 問題PDF
-            "pdf_a": f"https://example.com/{unit}_{level_name}_answer.pdf"    # 解答PDF
+            "pdf_q": pdf_q_dict,
+            "pdf_a": pdf_a_dict
         }
 
 # ==========================================
@@ -47,11 +62,14 @@ def init_session_state():
     if "favorites" not in st.session_state:
         st.session_state.favorites = []
     
-    # ドリル一覧の単元選択用ステート
     if "selected_tab_unit" not in st.session_state:
         st.session_state.selected_tab_unit = "たし算"
         
-    # タイマー用の状態
+    # ドリル画面での「問題」選択用
+    if "selected_problem" not in st.session_state:
+        st.session_state.selected_problem = None
+        
+    # タイマー用
     if 'start_time' not in st.session_state:
         st.session_state.start_time = None
     if 'elapsed_time' not in st.session_state:
@@ -68,6 +86,8 @@ def go_to_drill(unit, level):
     st.session_state.selected_unit = unit
     st.session_state.selected_level = level
     st.session_state.current_screen = "drill"
+    # 初期化
+    st.session_state.selected_problem = None
     st.session_state.elapsed_time = 0.0
     st.session_state.start_time = None
     st.session_state.is_running = False
@@ -76,6 +96,7 @@ def go_to_main():
     st.session_state.current_screen = "main"
     st.session_state.selected_unit = None
     st.session_state.selected_level = None
+    st.session_state.selected_problem = None
 
 def toggle_favorite(unit, level):
     fav = (unit, level)
@@ -90,6 +111,9 @@ def toggle_favorite(unit, level):
 def set_tab_unit(unit):
     st.session_state.selected_tab_unit = unit
 
+def set_problem(p):
+    st.session_state.selected_problem = p
+
 # ==========================================
 # 4. データ操作関数 (Google Sheets)
 # ==========================================
@@ -100,30 +124,55 @@ def init_connection():
 def load_data(_conn):
     try:
         df = _conn.read(worksheet="Sheet1")
+        # カラム構成を最新版に更新
+        expected_columns = ["日付", "単元", "レベル", "問題", "タイム", "間違えた数"]
         if df.empty or "日付" not in df.columns:
-            return pd.DataFrame(columns=["日付", "単元", "レベル", "タイム"])
+            return pd.DataFrame(columns=expected_columns)
         return df
     except Exception as e:
         st.error("データの読み込みに失敗しました。")
-        return pd.DataFrame(columns=["日付", "単元", "レベル", "タイム"])
+        return pd.DataFrame(columns=["日付", "単元", "レベル", "問題", "タイム", "間違えた数"])
 
 def save_data(conn, df, entry):
     new_df = pd.concat([df, pd.DataFrame([entry])], ignore_index=True)
     conn.update(worksheet="Sheet1", data=new_df)
     st.cache_data.clear()
 
-# グラフ作成用関数（大・小兼用、ロック機能付き）
+# グラフ作成用関数 (間違え数に応じた色変更対応)
 def create_chart(df, unit, level, is_mini=False):
     filtered_df = df[(df["単元"] == unit) & (df["レベル"] == level)].sort_values("日付").tail(10)
     if filtered_df.empty:
         return None
     
-    fig = px.line(filtered_df, x="日付", y="タイム", markers=True)
-    targets = DRILL_DATA[unit][level]
+    # 間違えた数を数値化（空欄などは0として扱う）
+    filtered_df["間違えた数"] = pd.to_numeric(filtered_df["間違えた数"], errors='coerce').fillna(0)
     
-    # Y軸の最大値を計算（記録の最大値と〇タイムの大きい方）
-    max_y = filtered_df["タイム"].max()
-    max_y = max(max_y, targets["maru"])
+    # ドットの色のリストを作成
+    marker_colors = []
+    for mistakes in filtered_df["間違えた数"]:
+        if mistakes == 0:
+            marker_colors.append("blue")
+        elif mistakes == 1:
+            marker_colors.append("orange")
+        else:
+            marker_colors.append("red")
+    
+    targets = DRILL_DATA[unit][level]
+    max_y = max(filtered_df["タイム"].max(), targets["maru"])
+    
+    # Plotly Graph Objectsでグラフを構築
+    fig = go.Figure()
+    
+    # 折れ線とマーカーを追加
+    marker_size = 12 if is_mini else 16 # ドットの大きさを少し大きく
+    fig.add_trace(go.Scatter(
+        x=filtered_df["日付"],
+        y=filtered_df["タイム"],
+        mode='lines+markers',
+        line=dict(color='lightgray', width=2), # 線の色はグレーで固定
+        marker=dict(color=marker_colors, size=marker_size, line=dict(width=1, color='black')),
+        name='タイム'
+    ))
     
     # 目標ライン
     fig.add_hline(y=targets["maru"], line_dash="dash", line_color="green", 
@@ -133,7 +182,7 @@ def create_chart(df, unit, level, is_mini=False):
     
     # グラフのロックとレイアウト設定
     layout_args = dict(
-        dragmode=False, # ズームやパンを無効化
+        dragmode=False,
         yaxis=dict(range=[0, max_y * 1.1], fixedrange=True),
         xaxis=dict(type='category', fixedrange=True),
         margin=dict(l=0, r=0, t=30 if not is_mini else 10, b=0)
@@ -143,12 +192,12 @@ def create_chart(df, unit, level, is_mini=False):
         layout_args.update(dict(
             xaxis_title=None, yaxis_title=None,
             xaxis=dict(showticklabels=False, type='category', fixedrange=True),
-            height=120
+            height=150 # ミニグラフの高さを少し確保
         ))
     else:
         layout_args.update(dict(
-            title="直近10回のタイム推移（秒）",
-            height=350
+            title="直近10回のタイム推移（青: 満点, オレンジ: 1ミス, 赤: 2ミス以上）",
+            height=400
         ))
         
     fig.update_layout(**layout_args)
@@ -191,23 +240,23 @@ def display_main_screen(df):
     # ----- 全レベル一覧 -----
     st.subheader("📖 ドリル一覧")
     
-    # 大きなボタンで単元を切り替え
     units = list(unit_configs.keys())
     btn_cols = st.columns(len(units))
     for i, u in enumerate(units):
         with btn_cols[i]:
-            # 選択中のボタンは色を変える
             btn_type = "primary" if st.session_state.selected_tab_unit == u else "secondary"
             st.button(u, key=f"tab_{u}", type=btn_type, use_container_width=True, on_click=set_tab_unit, args=(u,))
     
     current_unit = st.session_state.selected_tab_unit
-    
     st.markdown("<br>", unsafe_allow_html=True)
     
     # 選択された単元のレベルを一覧表示
     for level, data in DRILL_DATA[current_unit].items():
         with st.container(border=True):
-            # データの集計（最高記録、最終日、回数）
+            # --- 左右に分割（左: 情報とボタン, 右: グラフ） ---
+            col_left, col_right = st.columns([1, 1.2]) # 右側のグラフの幅を少し広めに
+            
+            # データの集計
             filtered_df = df[(df["単元"] == current_unit) & (df["レベル"] == level)]
             if not filtered_df.empty:
                 best_time = f"{filtered_df['タイム'].min():.1f} 秒"
@@ -218,27 +267,30 @@ def display_main_screen(df):
                 last_date = "-"
                 try_count = "0 回"
             
-            # ヘッダーと目標・記録情報
-            st.markdown(f"### {level}")
-            info_col1, info_col2 = st.columns([1, 1.5])
-            info_col1.markdown(f"**🎯 目標** 〇: {data['maru']}秒 / ◎: {data['niju_maru']}秒")
-            info_col2.markdown(f"**🏆 最高:** {best_time} ｜ **📅 最終:** {last_date} ｜ **🔄 回数:** {try_count}")
+            # 左側：文字情報とボタン
+            with col_left:
+                st.markdown(f"### {level}")
+                st.markdown(f"**🎯 目標** 〇: {data['maru']}秒 / ◎: {data['niju_maru']}秒")
+                st.markdown(f"**🏆 最高:** {best_time}  \n**📅 最終:** {last_date}  \n**🔄 回数:** {try_count}")
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    is_fav = (current_unit, level) in st.session_state.favorites
+                    fav_icon = "⭐ 解除" if is_fav else "☆ 追加"
+                    st.button(fav_icon, key=f"list_fav_{current_unit}_{level}", on_click=toggle_favorite, args=(current_unit, level), use_container_width=True)
+                with btn_col2:
+                    st.button("▶️ 挑戦！", key=f"list_chal_{current_unit}_{level}", type="primary", on_click=go_to_drill, args=(current_unit, level), use_container_width=True)
             
-            # ミニグラフ
-            fig = create_chart(df, current_unit, level, is_mini=True)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, key=f"list_chart_{current_unit}_{level}")
-            else:
-                st.info("まだ記録がありません")
-            
-            # アクションボタン
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                is_fav = (current_unit, level) in st.session_state.favorites
-                fav_icon = "⭐ お気に入り解除" if is_fav else "☆ お気に入りに追加"
-                st.button(fav_icon, key=f"list_fav_{current_unit}_{level}", on_click=toggle_favorite, args=(current_unit, level), use_container_width=True)
-            with btn_col2:
-                st.button("▶️ 挑戦！", key=f"list_chal_{current_unit}_{level}", type="primary", on_click=go_to_drill, args=(current_unit, level), use_container_width=True)
+            # 右側：グラフ
+            with col_right:
+                fig = create_chart(df, current_unit, level, is_mini=True)
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, key=f"list_chart_{current_unit}_{level}")
+                else:
+                    # グラフがない場合は余白を埋めるために少し改行
+                    st.markdown("<br><br>", unsafe_allow_html=True)
+                    st.info("まだ記録がありません")
 
 # ==========================================
 # 6. UIコンポーネント：ドリル実行画面
@@ -249,19 +301,37 @@ def display_drill_screen(conn, df):
     data = DRILL_DATA[unit][level]
     
     st.button("⬅️ 一覧に戻る", on_click=go_to_main)
-    
     st.title(f"🔥 {unit} {level} に挑戦！")
     
     col_tgt1, col_tgt2 = st.columns(2)
     col_tgt1.info(f"🎯 目標タイム 〇: {data['maru']} 秒")
     col_tgt2.info(f"🎯 目標タイム ◎: {data['niju_maru']} 秒")
 
-    st.link_button("📄 問題プリントを開く (印刷・表示)", data["pdf_q"], use_container_width=True)
+    st.markdown("---")
+    
+    # ----- 挑戦する問題（①〜④）の選択 -----
+    st.markdown("### 1️⃣ どの問題に挑戦する？")
+    p_cols = st.columns(4)
+    problems = ["①", "②", "③", "④"]
+    
+    for i, p in enumerate(problems):
+        with p_cols[i]:
+            btn_type = "primary" if st.session_state.selected_problem == p else "secondary"
+            st.button(f"問題{p} に挑戦", key=f"prob_{p}", type=btn_type, use_container_width=True, on_click=set_problem, args=(p,))
+
+    if not st.session_state.selected_problem:
+        st.warning("👆 上のボタンから、挑戦する問題（①〜④）を選んでね！")
+        return # 問題が選ばれるまではこれ以降のUIを表示しない
+        
+    p = st.session_state.selected_problem
+    
+    # 選択された問題のPDFリンクを表示
+    st.link_button(f"📄 問題{p} のプリントを開く (印刷・表示)", data["pdf_q"][p], use_container_width=True)
     
     st.markdown("---")
 
     # ----- タイマー機能 -----
-    st.subheader("⏱️ ストップウォッチ")
+    st.subheader(f"⏱️ 2️⃣ ストップウォッチ (問題{p})")
     countdown_placeholder = st.empty()
 
     t_col1, t_col2, t_col3 = st.columns(3)
@@ -314,12 +384,19 @@ def display_drill_screen(conn, df):
     if st.session_state.elapsed_time > 0 and not st.session_state.is_running:
         st.success(f"🎉 計測完了: {st.session_state.elapsed_time:.1f} 秒")
         st.markdown("---")
-        st.subheader("📝 丸つけと記録")
+        st.subheader("📝 3️⃣ 丸つけと記録")
         
-        st.link_button("✅ 解答プリントを開く (丸つけ)", data["pdf_a"], use_container_width=True)
+        # 選択された問題の解答PDF
+        st.link_button(f"✅ 解答プリントを開く (問題{p}の丸つけ)", data["pdf_a"][p], use_container_width=True)
         
-        st.write("▼ タイムを確認して保存しよう！")
-        input_time = st.number_input("タイム（秒）", min_value=0.0, step=0.1, value=float(round(st.session_state.elapsed_time, 1)), format="%.1f")
+        st.write("▼ タイムと間違えた数を確認して保存しよう！")
+        
+        # タイムと間違え数の入力フォームを並べる
+        in_col1, in_col2 = st.columns(2)
+        with in_col1:
+            input_time = st.number_input("タイム（秒）", min_value=0.0, step=0.1, value=float(round(st.session_state.elapsed_time, 1)), format="%.1f")
+        with in_col2:
+            input_mistakes = st.number_input("間違えた数", min_value=0, step=1, value=0)
         
         if st.button("💾 記録を保存して戻る", type="primary", use_container_width=True):
             if input_time > 0:
@@ -327,7 +404,9 @@ def display_drill_screen(conn, df):
                     "日付": datetime.now().strftime("%Y-%m-%d"),
                     "単元": unit,
                     "レベル": level,
-                    "タイム": input_time
+                    "問題": p,         # 新規追加列
+                    "タイム": input_time,
+                    "間違えた数": input_mistakes # 新規追加列
                 }
                 save_data(conn, df, entry)
                 st.success("保存しました！")
@@ -340,7 +419,6 @@ def display_drill_screen(conn, df):
     st.subheader("📊 これまでの推移")
     fig = create_chart(df, unit, level, is_mini=False)
     if fig:
-        # ツールバー（メニュー）を非表示にして表示
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, key=f"drill_chart_{unit}_{level}")
     else:
         st.info("まだ記録がありません。最初の記録を作りましょう！")
