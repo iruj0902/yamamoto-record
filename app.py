@@ -24,7 +24,9 @@ def load_master_data(_conn):
     try:
         # マスタシートの読み込み
         master_df = _conn.read(worksheet="マスタ")
-        
+        # --- デバッグ用：読み込んだカラム名を画面に出す ---
+        st.write("現在アプリが見ているカラム名:", master_df.columns.tolist())
+        # ----------------------------------------------
         # 必要なカラムがあるか確認
         required = ["単元", "レベル", "問題", "ファイルURL", "maru", "niju_maru"]
         for col in required:
