@@ -28,7 +28,7 @@ def load_master_data(_conn):
         st.write("現在アプリが見ているカラム名:", master_df.columns.tolist())
         # ----------------------------------------------
         # 必要なカラムがあるか確認
-        required = ["単元", "レベル", "問題", "ファイルURL", "maru", "niju_maru"]
+        required = ["単元", "レベル", "問題", "URL", "maru", "niju_maru"]
         for col in required:
             if col not in master_df.columns:
                 st.error(f"マスタシートに '{col}' カラムが見つかりません。")
