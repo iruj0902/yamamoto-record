@@ -25,7 +25,7 @@ def load_master_data(_conn):
         # マスタシートの読み込み
         master_df = _conn.read(worksheet="マスタ")
         # --- デバッグ用：読み込んだカラム名を画面に出す ---
-        st.write("現在アプリが見ているカラム名:", master_df.columns.tolist())
+        #st.write("現在アプリが見ているカラム名:", master_df.columns.tolist())
         # ----------------------------------------------
         # 必要なカラムがあるか確認
         required = ["単元", "レベル", "問題", "URL", "maru", "niju_maru"]
@@ -50,7 +50,7 @@ def load_master_data(_conn):
             structured_data[unit][level]["problems"][prob] = {
                 "maru": row["maru"],
                 "niju_maru": row["niju_maru"],
-                "pdf_q": row["ファイルURL"]
+                "pdf_q": row["URL"]
             }
             # 一覧表示用にそのレベルの代表的な目標値を保持（便宜上、最初の問題の値を採用）
             if "maru" not in structured_data[unit][level]:
